@@ -1,0 +1,26 @@
+{
+  "skill_name": "editable-slides",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "basic-editable-pitch",
+      "prompt": "Create a 5-slide pitch deck for a fictional startup called 'GreenLeaf' that makes plant-based meal kits. Use the Bold Signal style. The presentation should have: 1) Title slide with company name and tagline 'Fresh food, zero waste', 2) Problem slide about food waste, 3) Solution slide about meal kits, 4) Market size slide with some stats, 5) Call to action slide. Save as greenleaf-pitch.html.",
+      "expected_output": "A single self-contained HTML file (greenleaf-pitch.html) with 5 slides using Bold Signal styling. The file must include the full editing system: toolbar (bold/italic/underline/font size/color/alignment), drag-to-move elements, resize handles on images, slide panel for add/delete/reorder, Ctrl+S export, and E key to toggle edit mode. All text elements must have class='editable-element'.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "eval_name": "tutorial-with-editing",
+      "prompt": "Create a 8-slide tutorial presentation about 'Introduction to Machine Learning' for college students. Use the Notebook Tabs style. Cover: what is ML, types of ML, supervised learning, unsupervised learning, a simple example, common algorithms, real-world applications, and next steps. I want to be able to edit everything in the browser after — move text around, change font sizes, add images, and reorder slides.",
+      "expected_output": "A single self-contained HTML file with 8 slides in Notebook Tabs style. Must include complete editor system with rich toolbar, drag system, resize handles, slide panel, and save/export. All user-visible text must be editable. The presentation should look polished in presentation mode and have full editing capabilities in edit mode.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "eval_name": "minimal-conference-talk",
+      "prompt": "I need a quick 4-slide presentation for a conference talk about 'The Future of Remote Work'. Use Dark Botanical style. Slides: 1) Title, 2) Current state of remote work (2024 stats), 3) 3 predictions for 2030, 4) Thank you + Q&A. Make sure the editing is fully functional — I need to tweak the text and possibly add some images later.",
+      "expected_output": "A single self-contained HTML file with 4 slides in Dark Botanical style. Full editing system embedded: edit toggle (E key + top-left button), formatting toolbar, drag-and-drop elements, image resize, slide management panel, Ctrl+S export that strips edit state. Content fits viewport correctly in presentation mode.",
+      "files": []
+    }
+  ]
+}
