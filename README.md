@@ -20,7 +20,13 @@ A Claude Code skill that creates **stunning, animation-rich HTML presentations f
 
 ## Installation
 
-Add to your Claude Code skills directory:
+### Option 1: Clone from GitHub
+
+```bash
+git clone https://github.com/cykbennie/editable-slides.git ~/.claude/skills/editable-slides
+```
+
+### Option 2: Manual copy
 
 ```bash
 cp -r SKILL.md references/ scripts/ ~/.claude/skills/editable-slides/
@@ -33,6 +39,12 @@ In Claude Code, simply ask:
 - "Create a 10-slide pitch deck for my startup"
 - "Make a tutorial presentation about React"
 - "Convert my presentation.pptx to an editable web presentation"
+
+Or invoke the skill directly:
+
+```
+/editable-slides Create a presentation about...
+```
 
 The skill will guide you through content discovery, style selection (with live previews), and generation.
 
