@@ -266,9 +266,9 @@ A floating toolbar at the top of the viewport in edit mode. Contains formatting 
     </div>
     <div class="toolbar-divider"></div>
     <div class="toolbar-group">
-        <button class="toolbar-btn" data-command="justifyLeft" title="Align Left">⫷</button>
-        <button class="toolbar-btn" data-command="justifyCenter" title="Align Center">⫿</button>
-        <button class="toolbar-btn" data-command="justifyRight" title="Align Right">⫸</button>
+        <button class="toolbar-btn" data-command="justifyLeft" title="Align Left">&#8676;</button>
+        <button class="toolbar-btn" data-command="justifyCenter" title="Align Center">&#8596;</button>
+        <button class="toolbar-btn" data-command="justifyRight" title="Align Right">&#8594;</button>
     </div>
     <div class="toolbar-divider"></div>
     <div class="toolbar-group">
@@ -961,6 +961,7 @@ class SlideEditor {
 
         this.initToggle();
         this.initToolbar();
+        this.initSelection();
         this.initDrag();
         this.initResize();
         this.initImageInsert();
@@ -1427,18 +1428,21 @@ class SlideEditor {
             try { localStorage.setItem('editable-slides-data', JSON.stringify(data)); } catch(e) {}
         }, 10000);
 
-        // Restore on load
+        // Restore on load — insert slides before the toolbar to maintain DOM order
         const saved = localStorage.getItem('editable-slides-data');
         if (saved) {
             try {
                 const data = JSON.parse(saved);
                 document.querySelectorAll('.slide').forEach(s => s.remove());
+                const toolbar = document.getElementById('editToolbar');
                 data.forEach((html, i) => {
                     const temp = document.createElement('div');
                     temp.innerHTML = html;
                     const slide = temp.firstElementChild;
                     slide.setAttribute('data-slide-index', i);
-                    document.body.appendChild(slide);
+                    // Insert before toolbar to keep DOM order correct
+                    if (toolbar) document.body.insertBefore(slide, toolbar);
+                    else document.body.appendChild(slide);
                 });
             } catch (e) { console.warn('Failed to restore saved data:', e); }
         }
@@ -1564,9 +1568,11 @@ class SlideEditor {
     }
 }
 
-// Initialize
-const presentation = new SlidePresentation();
-const editor = new SlideEditor(presentation);
+// Initialize after DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    const presentation = new SlidePresentation();
+    const editor = new SlideEditor(presentation);
+});
 ```
 
 ---
