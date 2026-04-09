@@ -97,6 +97,9 @@ Reference architecture for generating editable slide presentations. Every presen
     </div>
 
     <!-- Slides -->
+    <div class="edit-hotzone"></div>
+    <button class="edit-toggle" id="editToggle" title="Edit mode (E)" aria-label="Toggle edit mode">&#9998;</button>
+
     <section class="slide title-slide" data-slide-index="0">
         <div class="slide-content">
             <h1 class="reveal editable-element">Presentation Title</h1>

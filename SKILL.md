@@ -66,7 +66,19 @@ In edit mode users can add more content — that's their choice. The limits are 
 
 - **Mode A: New Presentation** — Create from scratch. Go to Phase 1.
 - **Mode B: PPT Conversion** — Convert a .pptx file. Go to Phase 4.
-- **Mode C: Enhancement** — Improve an existing editable-slides presentation. Read it, understand it, enhance. Preserve the editing system when modifying.
+- **Mode C: Enhancement** — Improve an existing editable-slides presentation. Read it, understand it, enhance. **Follow Mode C modification rules below.**
+
+### Mode C: Modification Rules
+
+When enhancing existing editable presentations, preserve the editing system and watch for viewport fitting:
+
+1. **Preserve the editor** — Never remove the SlideEditor class, toolbar, slide panel, or edit toggle. Any modification must keep the full editing system intact.
+2. **Mark new content** — Any new text or images you add must have `class="editable-element"` so they're editable.
+3. **Before adding content:** Count existing elements on the target slide, check against density limits
+4. **Adding images:** Must have `max-height: min(50vh, 400px)`. If slide already has max content, split into two slides
+5. **Adding text:** Max 4-6 bullets per slide. Exceeds limits? Split into continuation slides
+6. **After ANY modification, verify:** `.slide` has `overflow: hidden`, new elements use `clamp()`, new elements have `editable-element` class, images have viewport-relative max-height
+7. **Proactively reorganize:** If modifications will cause overflow, automatically split content and inform the user
 
 ---
 

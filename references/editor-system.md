@@ -874,32 +874,28 @@ exportFile() {
     editableEls.forEach(el => el.removeAttribute('contenteditable'));
 
     document.body.classList.remove('edit-active');
-
-    // 2. Remove edit-mode classes from UI elements
     document.getElementById('editToggle')?.classList.remove('active', 'show');
-
-    // 3. Remove selection outlines
     document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
 
-    // 4. Ensure scroll-snap is restored
+    // 2. Remove dynamically-added edit handles (critical — these must NOT appear in saved file)
+    document.querySelectorAll('.drag-handle, .resize-handle').forEach(el => el.remove());
+
+    // 3. Restore clean presentation state
     document.documentElement.style.scrollSnapType = '';
+    document.querySelectorAll('.slide').forEach(s => { s.style.marginLeft = ''; });
 
-    // 5. Ensure all slides are visible (not hidden by panel)
-    document.querySelectorAll('.slide').forEach(s => {
-        s.style.marginLeft = '';
-    });
-
-    // 6. Capture HTML
+    // 4. Capture HTML
     const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
 
-    // 7. Restore edit state if we were in edit mode
+    // 5. Restore edit state if still in edit mode
     if (this.isActive) {
         document.body.classList.add('edit-active');
         editableEls.forEach(el => el.setAttribute('contenteditable', 'true'));
         document.getElementById('editToggle')?.classList.add('active');
+        document.querySelectorAll('.slide').forEach(s => { s.style.marginLeft = '200px'; });
     }
 
-    // 8. Download
+    // 6. Download
     const blob = new Blob([html], { type: 'text/html' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -917,14 +913,14 @@ Persists edits automatically. Restores on page reload.
 
 ```javascript
 initAutoSave() {
-    // Auto-save every 5 seconds when in edit mode
+    // Auto-save every 10 seconds when in edit mode (debounced)
     this.autoSaveInterval = setInterval(() => {
         if (!this.isActive) return;
         const slides = document.querySelectorAll('.slide');
         const data = [];
         slides.forEach(slide => data.push(slide.outerHTML));
-        localStorage.setItem('editable-slides-data', JSON.stringify(data));
-    }, 5000);
+        try { localStorage.setItem('editable-slides-data', JSON.stringify(data)); } catch(e) {}
+    }, 10000);
 
     // Restore on load
     const saved = localStorage.getItem('editable-slides-data');
@@ -1115,25 +1111,460 @@ class SlideEditor {
         return document.querySelectorAll('.slide')[this.currentSlideIndex];
     }
 
-    /* === INIT METHODS (see individual sections above) === */
+    /* === INIT METHODS === */
 
-    initToggle() { /* ... toggle code from Edit Mode Toggle section ... */ }
-    initToolbar() { /* ... toolbar code ... */ }
-    initDrag() { /* ... drag code ... */ }
-    initResize() { /* ... resize code ... */ }
-    initImageInsert() { /* ... image insert code ... */ }
-    initTextInsert() { /* ... text insert code ... */ }
-    initSave() { /* ... save code ... */ }
-    initAutoSave() { /* ... auto-save code ... */ }
-    buildSlidePanel() { /* ... slide panel code ... */ }
-    scrollToSlide(index) { /* ... scroll code ... */ }
-    addSlide() { /* ... add slide code ... */ }
-    deleteSlide(index) { /* ... delete slide code ... */ }
-    duplicateSlide(index) { /* ... duplicate slide code ... */ }
-    exportFile() { /* ... export code ... */ }
+    initToggle() {
+        const hotzone = document.querySelector('.edit-hotzone');
+        const editToggle = document.getElementById('editToggle');
+        if (!hotzone || !editToggle) return;
+        let hideTimeout = null;
+
+        hotzone.addEventListener('mouseenter', () => {
+            clearTimeout(hideTimeout);
+            editToggle.classList.add('show');
+        });
+        hotzone.addEventListener('mouseleave', () => {
+            hideTimeout = setTimeout(() => {
+                if (!this.isActive) editToggle.classList.remove('show');
+            }, 400);
+        });
+        editToggle.addEventListener('mouseenter', () => clearTimeout(hideTimeout));
+        editToggle.addEventListener('mouseleave', () => {
+            hideTimeout = setTimeout(() => {
+                if (!this.isActive) editToggle.classList.remove('show');
+            }, 400);
+        });
+        editToggle.addEventListener('click', () => this.toggleEditMode());
+        hotzone.addEventListener('click', () => this.toggleEditMode());
+        document.addEventListener('keydown', (e) => {
+            if ((e.key === 'e' || e.key === 'E') && !e.target.getAttribute('contenteditable')) {
+                e.preventDefault();
+                this.toggleEditMode();
+            }
+        });
+    }
+
+    initToolbar() {
+        // Formatting commands
+        document.querySelectorAll('.toolbar-btn[data-command]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                document.execCommand(btn.dataset.command, false, null);
+                this.updateToolbarState();
+            });
+        });
+        // Font size
+        const fontSizeSelect = document.getElementById('fontSizeSelect');
+        fontSizeSelect?.addEventListener('change', (e) => {
+            document.execCommand('fontSize', false, e.target.value);
+        });
+        // Text color
+        const colorPicker = document.getElementById('textColorPicker');
+        colorPicker?.addEventListener('input', (e) => {
+            document.execCommand('foreColor', false, e.target.value);
+        });
+        // Selection state tracking
+        document.addEventListener('selectionchange', () => this.updateToolbarState());
+    }
+
+    updateToolbarState() {
+        document.querySelectorAll('.toolbar-btn[data-command]').forEach(btn => {
+            const cmd = btn.dataset.command;
+            if (['bold', 'italic', 'underline', 'justifyLeft', 'justifyCenter',
+                 'justifyRight', 'insertUnorderedList', 'insertOrderedList'].includes(cmd)) {
+                btn.classList.toggle('active', document.queryCommandState(cmd));
+            }
+        });
+    }
+
+    initDrag() {
+        let isDragging = false;
+        let currentEl = null;
+        let startX, startY, startLeft, startTop;
+
+        // Mouse events
+        document.addEventListener('mousedown', (e) => {
+            if (!this.isActive) return;
+            const handle = e.target.closest('.drag-handle');
+            if (!handle) return;
+            e.preventDefault();
+            this._startDrag(handle.parentElement, e.clientX, e.clientY);
+            isDragging = true;
+            currentEl = handle.parentElement;
+            startX = e.clientX; startY = e.clientY;
+            const slideContent = currentEl.closest('.slide-content');
+            const slideRect = slideContent.getBoundingClientRect();
+            startLeft = parseInt(currentEl.style.left) || 0;
+            startTop = parseInt(currentEl.style.top) || 0;
+            // Store slideRect for delta calculations
+            this._dragSlideRect = slideRect;
+            this._dragStartLeft = startLeft;
+            this._dragStartTop = startTop;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging || !currentEl) return;
+            e.preventDefault();
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            currentEl.style.left = (this._dragStartLeft + dx) + 'px';
+            currentEl.style.top = (this._dragStartTop + dy) + 'px';
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (currentEl) {
+                currentEl.style.zIndex = '';
+                currentEl.style.opacity = '';
+            }
+            isDragging = false; currentEl = null;
+        });
+
+        // Touch events
+        document.addEventListener('touchstart', (e) => {
+            if (!this.isActive) return;
+            const handle = e.target.closest('.drag-handle');
+            if (!handle) return;
+            const touch = e.touches[0];
+            isDragging = true; currentEl = handle.parentElement;
+            startX = touch.clientX; startY = touch.clientY;
+            const slideContent = currentEl.closest('.slide-content');
+            const slideRect = slideContent.getBoundingClientRect();
+            if (!currentEl.style.position || currentEl.style.position !== 'absolute') {
+                const elRect = currentEl.getBoundingClientRect();
+                currentEl.style.position = 'absolute';
+                currentEl.style.left = (elRect.left - slideRect.left) + 'px';
+                currentEl.style.top = (elRect.top - slideRect.top) + 'px';
+                currentEl.style.margin = '0';
+            }
+            startLeft = parseInt(currentEl.style.left);
+            startTop = parseInt(currentEl.style.top);
+            this._dragStartLeft = startLeft; this._dragStartTop = startTop;
+        }, { passive: true });
+
+        document.addEventListener('touchmove', (e) => {
+            if (!isDragging || !currentEl) return;
+            e.preventDefault();
+            const touch = e.touches[0];
+            const dx = touch.clientX - startX;
+            const dy = touch.clientY - startY;
+            currentEl.style.left = (this._dragStartLeft + dx) + 'px';
+            currentEl.style.top = (this._dragStartTop + dy) + 'px';
+        }, { passive: false });
+
+        document.addEventListener('touchend', () => {
+            if (currentEl) { currentEl.style.zIndex = ''; currentEl.style.opacity = ''; }
+            isDragging = false; currentEl = null;
+        });
+    }
+
+    _startDrag(el, clientX, clientY) {
+        const slideContent = el.closest('.slide-content');
+        if (!slideContent) return;
+        const slideRect = slideContent.getBoundingClientRect();
+        if (!el.style.position || el.style.position !== 'absolute') {
+            const elRect = el.getBoundingClientRect();
+            el.style.position = 'absolute';
+            el.style.left = (elRect.left - slideRect.left) + 'px';
+            el.style.top = (elRect.top - slideRect.top) + 'px';
+            el.style.margin = '0';
+        }
+        el.style.zIndex = '100';
+        el.style.opacity = '0.8';
+    }
+
+    initResize() {
+        let isResizing = false, currentImg = null;
+        let startX, startY, startW, startH, aspectRatio = 1;
+
+        const onStart = (img, clientX, clientY) => {
+            isResizing = true; currentImg = img;
+            aspectRatio = img.naturalWidth / img.naturalHeight;
+            startX = clientX; startY = clientY;
+            startW = img.offsetWidth; startH = img.offsetHeight;
+        };
+        const onMove = (clientX, clientY, maintainAspect) => {
+            if (!isResizing || !currentImg) return;
+            const dx = clientX - startX, dy = clientY - startY;
+            let newW, newH;
+            if (maintainAspect) {
+                newW = Math.max(50, startW + dx);
+                newH = newW / aspectRatio;
+            } else {
+                newW = Math.max(50, startW + dx);
+                newH = Math.max(50, startH + dy);
+            }
+            currentImg.style.width = newW + 'px';
+            currentImg.style.height = newH + 'px';
+            currentImg.style.maxWidth = 'none';
+            currentImg.style.maxHeight = 'none';
+        };
+        const onEnd = () => {
+            if (isResizing) currentImg?.classList.remove('selected');
+            isResizing = false; currentImg = null;
+        };
+
+        // Mouse
+        document.addEventListener('mousedown', (e) => {
+            if (!this.isActive) return;
+            const handle = e.target.closest('.resize-handle');
+            if (!handle) return;
+            e.preventDefault();
+            const img = handle.closest('img.editable-element') || handle.previousElementSibling;
+            if (!img || img.tagName !== 'IMG') return;
+            onStart(img, e.clientX, e.clientY);
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            e.preventDefault();
+            onMove(e.clientX, e.clientY, !e.shiftKey);
+        });
+        document.addEventListener('mouseup', onEnd);
+
+        // Touch
+        document.addEventListener('touchstart', (e) => {
+            if (!this.isActive) return;
+            const handle = e.target.closest('.resize-handle');
+            if (!handle) return;
+            const img = handle.closest('img.editable-element') || handle.previousElementSibling;
+            if (!img || img.tagName !== 'IMG') return;
+            onStart(img, e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: true });
+        document.addEventListener('touchmove', (e) => {
+            if (!isResizing) return;
+            e.preventDefault();
+            onMove(e.touches[0].clientX, e.touches[0].clientY, true);
+        }, { passive: false });
+        document.addEventListener('touchend', onEnd);
+    }
+
+    initImageInsert() {
+        const btn = document.getElementById('addImageBtn');
+        btn?.addEventListener('click', () => {
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:10002;display:flex;align-items:center;justify-content:center;';
+            modal.innerHTML = `
+                <div style="background:#1e1e28;border-radius:12px;padding:24px;min-width:400px;max-width:500px;">
+                    <h3 style="color:white;margin-bottom:16px;">Add Image</h3>
+                    <div style="margin-bottom:12px;">
+                        <label style="color:rgba(255,255,255,0.6);font-size:12px;display:block;margin-bottom:4px;">From URL</label>
+                        <input id="imageUrlInput" type="text" placeholder="https://example.com/image.jpg"
+                            style="width:100%;padding:8px 12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:white;font-size:14px;">
+                    </div>
+                    <div style="margin-bottom:16px;">
+                        <label style="color:rgba(255,255,255,0.6);font-size:12px;display:block;margin-bottom:4px;">Or upload file</label>
+                        <input id="imageFileInput" type="file" accept="image/*"
+                            style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:white;font-size:14px;">
+                    </div>
+                    <div style="display:flex;gap:8px;justify-content:flex-end;">
+                        <button id="imageCancelBtn" style="padding:8px 16px;background:transparent;border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:white;cursor:pointer;">Cancel</button>
+                        <button id="imageInsertBtn" style="padding:8px 16px;background:var(--accent,#00ffcc);border:none;border-radius:6px;color:#000;cursor:pointer;font-weight:bold;">Insert</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+            const insertImage = () => {
+                const url = document.getElementById('imageUrlInput').value.trim();
+                const file = document.getElementById('imageFileInput').files[0];
+                const createImg = (src) => {
+                    const content = this.getCurrentSlide()?.querySelector('.slide-content');
+                    if (!content) { modal.remove(); return; }
+                    const img = document.createElement('img');
+                    img.className = 'editable-element slide-image';
+                    img.src = src; img.alt = 'Added image';
+                    img.style.maxHeight = 'min(50vh, 400px)';
+                    content.appendChild(img);
+                    modal.remove();
+                };
+                if (url) createImg(url);
+                else if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => createImg(e.target.result);
+                    reader.readAsDataURL(file);
+                }
+            };
+            document.getElementById('imageInsertBtn').addEventListener('click', insertImage);
+            document.getElementById('imageCancelBtn').addEventListener('click', () => modal.remove());
+            modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+        });
+    }
+
+    initTextInsert() {
+        const btn = document.getElementById('addTextBtn');
+        btn?.addEventListener('click', () => {
+            const content = this.getCurrentSlide()?.querySelector('.slide-content');
+            if (!content) return;
+            const text = document.createElement('p');
+            text.className = 'editable-element reveal visible';
+            text.textContent = 'New text — click to edit';
+            text.style.padding = '8px'; text.style.margin = '8px 0';
+            content.appendChild(text);
+            if (this.isActive) {
+                text.setAttribute('contenteditable', 'true');
+                text.focus();
+                const range = document.createRange();
+                range.selectNodeContents(text);
+                const sel = window.getSelection();
+                sel.removeAllRanges(); sel.addRange(range);
+            }
+        });
+    }
+
+    initSave() {
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 's') { e.preventDefault(); this.exportFile(); }
+        });
+        document.getElementById('saveBtn')?.addEventListener('click', () => this.exportFile());
+        document.getElementById('presentBtn')?.addEventListener('click', () => {
+            if (this.isActive) this.toggleEditMode();
+        });
+    }
+
+    initAutoSave() {
+        this.autoSaveInterval = setInterval(() => {
+            if (!this.isActive) return;
+            const slides = document.querySelectorAll('.slide');
+            const data = [];
+            slides.forEach(slide => data.push(slide.outerHTML));
+            try { localStorage.setItem('editable-slides-data', JSON.stringify(data)); } catch(e) {}
+        }, 10000);
+
+        // Restore on load
+        const saved = localStorage.getItem('editable-slides-data');
+        if (saved) {
+            try {
+                const data = JSON.parse(saved);
+                document.querySelectorAll('.slide').forEach(s => s.remove());
+                data.forEach((html, i) => {
+                    const temp = document.createElement('div');
+                    temp.innerHTML = html;
+                    const slide = temp.firstElementChild;
+                    slide.setAttribute('data-slide-index', i);
+                    document.body.appendChild(slide);
+                });
+            } catch (e) { console.warn('Failed to restore saved data:', e); }
+        }
+    }
+
+    buildSlidePanel() {
+        const panel = document.getElementById('slidePanel');
+        if (!panel) return;
+        panel.innerHTML = '';
+        const slides = document.querySelectorAll('.slide');
+        slides.forEach((slide, i) => {
+            const thumb = document.createElement('div');
+            thumb.className = 'slide-thumb' + (i === this.currentSlideIndex ? ' active' : '');
+            thumb.innerHTML = `<span class="slide-thumb-label">${i + 1}</span>
+                <div class="slide-thumb-actions">
+                    <button class="slide-thumb-btn duplicate" data-action="duplicate" data-index="${i}" title="Duplicate" aria-label="Duplicate slide ${i+1}">⧉</button>
+                    <button class="slide-thumb-btn" data-action="delete" data-index="${i}" title="Delete" aria-label="Delete slide ${i+1}">✕</button>
+                </div>`;
+            thumb.addEventListener('click', (e) => {
+                if (e.target.closest('.slide-thumb-btn')) return;
+                this.scrollToSlide(i);
+            });
+            panel.appendChild(thumb);
+        });
+        const addBtn = document.createElement('div');
+        addBtn.className = 'panel-add-slide'; addBtn.textContent = '+';
+        addBtn.setAttribute('aria-label', 'Add new slide');
+        addBtn.addEventListener('click', () => this.addSlide());
+        panel.appendChild(addBtn);
+        panel.querySelectorAll('.slide-thumb-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const index = parseInt(btn.dataset.index);
+                if (btn.dataset.action === 'delete') this.deleteSlide(index);
+                if (btn.dataset.action === 'duplicate') this.duplicateSlide(index);
+            });
+        });
+    }
+
+    scrollToSlide(index) {
+        const slides = document.querySelectorAll('.slide');
+        if (index >= 0 && index < slides.length) {
+            slides[index].scrollIntoView({ behavior: 'smooth' });
+            this.currentSlideIndex = index;
+            this.buildSlidePanel();
+        }
+    }
+
+    addSlide() {
+        const slides = document.querySelectorAll('.slide');
+        const newSlide = document.createElement('section');
+        newSlide.className = 'slide';
+        newSlide.setAttribute('data-slide-index', slides.length);
+        newSlide.innerHTML = `<div class="slide-content">
+            <h2 class="editable-element reveal visible">New Slide</h2>
+            <p class="editable-element reveal visible">Click to add content</p>
+        </div>`;
+        document.body.appendChild(newSlide);
+        this.buildSlidePanel();
+        this.scrollToSlide(slides.length);
+    }
+
+    deleteSlide(index) {
+        const slides = document.querySelectorAll('.slide');
+        if (slides.length <= 1) return;
+        if (confirm('Delete this slide?')) {
+            slides[index].remove();
+            document.querySelectorAll('.slide').forEach((s, i) => s.setAttribute('data-slide-index', i));
+            if (this.currentSlideIndex >= document.querySelectorAll('.slide').length) {
+                this.currentSlideIndex = document.querySelectorAll('.slide').length - 1;
+            }
+            this.buildSlidePanel();
+        }
+    }
+
+    duplicateSlide(index) {
+        const slides = document.querySelectorAll('.slide');
+        const clone = slides[index].cloneNode(true);
+        clone.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
+        clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+        document.body.insertBefore(clone, slides[index].nextSibling);
+        document.querySelectorAll('.slide').forEach((s, i) => s.setAttribute('data-slide-index', i));
+        this.buildSlidePanel();
+    }
+
+    exportFile() {
+        // 1. Strip edit state
+        const editableEls = Array.from(document.querySelectorAll('[contenteditable]'));
+        editableEls.forEach(el => el.removeAttribute('contenteditable'));
+        document.body.classList.remove('edit-active');
+        document.getElementById('editToggle')?.classList.remove('active', 'show');
+        document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
+        document.querySelectorAll('.drag-handle, .resize-handle').forEach(el => el.remove());
+        document.documentElement.style.scrollSnapType = '';
+        document.querySelectorAll('.slide').forEach(s => { s.style.marginLeft = ''; });
+
+        // 2. Capture HTML
+        const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+
+        // 3. Restore edit state
+        if (this.isActive) {
+            document.body.classList.add('edit-active');
+            editableEls.forEach(el => el.setAttribute('contenteditable', 'true'));
+            document.getElementById('editToggle')?.classList.add('active');
+            if (this.selectedElement) {
+                this.selectedElement.classList.add('selected');
+                if (!this.selectedElement.querySelector('.drag-handle')) {
+                    const h = document.createElement('div');
+                    h.className = 'drag-handle';
+                    this.selectedElement.appendChild(h);
+                }
+            }
+            document.querySelectorAll('.slide').forEach(s => { s.style.marginLeft = '200px'; });
+        }
+
+        // 4. Download
+        const blob = new Blob([html], { type: 'text/html' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'presentation.html';
+        a.click();
+        URL.revokeObjectURL(a.href);
+    }
 }
 
-// Initialize after DOM is ready
+// Initialize
 const presentation = new SlidePresentation();
 const editor = new SlideEditor(presentation);
 ```
